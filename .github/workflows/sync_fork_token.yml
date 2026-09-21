@@ -1,0 +1,45 @@
+name: Fork Sync (PAT)
+
+# 与上游自带的 sync_fork.yml 的区别：
+#   这里使用本仓库 secret FORK_SYNC_TOKEN（fine-grained PAT，带 Contents + Workflows 写权限）
+#   调用官方 merge-upstream 接口，由 GitHub 在服务端以该 token 的身份完成合并。
+#   因此可以正常带上 .github/workflows/ 下的改动 —— 这正是 GITHUB_TOKEN 做不到、
+#   导致上游自带那条工作流一旦上游改工作流文件就必然失败的原因。
+
+on:
+  schedule:
+    - cron: "0 1 * * *" # 每天 01:00 UTC（北京时间 09:00）
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fork-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Sync with upstream
+    runs-on: ubuntu-latest
+    steps:
+      - name: State before sync
+        env:
+          GH_TOKEN: ${{ secrets.FORK_SYNC_TOKEN }}
+        run: |
+          gh api "repos/${{ github.repository }}/compare/huangxd-:main...main" \
+            --jq '"before: status=\(.status) ahead=\(.ahead_by) behind=\(.behind_by)"'
+
+      - name: Merge upstream into fork
+        env:
+          GH_TOKEN: ${{ secrets.FORK_SYNC_TOKEN }}
+        run: |
+          gh api -X POST "repos/${{ github.repository }}/merge-upstream" \
+            -f branch=main --jq '"result: \(.message)"'
+
+      - name: State after sync
+        env:
+          GH_TOKEN: ${{ secrets.FORK_SYNC_TOKEN }}
+        run: |
+          gh api "repos/${{ github.repository }}/compare/huangxd-:main...main" \
+            --jq '"after:  status=\(.status) ahead=\(.ahead_by) behind=\(.behind_by)"'
